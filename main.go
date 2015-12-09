@@ -7,20 +7,21 @@ import (
   "github.com/tcooper8/webApp/events"
 )
 
+var doneChan = make(chan int)
+
 func onAuthRegister(log *logging.Log, bus *commons.EventBus) error {
-  handler := make(chan interface{})
-  err := bus.On("auth.Register", handler)
-  if err != nil {
-    return err
-  }
+  handler := make(chan *commons.Handle)
 
   go func() {
-    for _ = range(handler) {
+    for handle := range(handler) {
       log.Info("Got message!")
+      handle.Reply <- "Hello!"
+
+      doneChan <- 1
     }
   }()
 
-  return nil
+  return bus.On("auth.Register", handler)
 }
 
 func main () {
@@ -35,6 +36,7 @@ func main () {
   err = onAuthRegister(log, bus)
   if err != nil {
     log.Error("Unable to start auth listener: %s", err)
+    panic("")
   }
 
   pman := pman.New()
@@ -44,14 +46,22 @@ func main () {
   }
   log.Info("Started process\n")
 
-  bus.Publish("auth.Register", events_auth.Register{
-    "Bobby",
-    "Singer",
-    "bobby@gmail.com",
-    "samanddean",
-    "1234",
-    "Male",
-  })
+  for i := 0; i < 10000; i++ {
+    msg, err := bus.Publish("auth.Register", events_auth.Register{
+      "Bobby",
+      "Singer",
+      "bobby@gmail.com",
+      "samanddean",
+      "1234",
+      "Male",
+    })
+    if err != nil {
+      log.Error("Publish error: %s", err)
+    }
+    log.Info("Got message response %s!", msg)
 
-  for { }
+    <-doneChan
+  }
+
+  log.Info("Send!")
 }
