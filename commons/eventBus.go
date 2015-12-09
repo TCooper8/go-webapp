@@ -275,7 +275,20 @@ func (bus *EventBus) respond(channel *amqp.Channel, letter *amqp.Delivery, resp 
   return err
 }
 
-func (bus *EventBus) Publish(eventType string, msg interface{}) (interface{}, error) {
+func (bus *EventBus) Publish(eventType string, msg interface{}) error {
+  log := bus.log
+
+  amq, err := bus.getAmqp(eventType)
+  if err != nil {
+    return nil, err
+  }
+
+  channel := amq.channel
+
+  sub, ok := bus.subMap[eventType
+}
+
+func (bus *EventBus) Request(eventType string, msg interface{}) (interface{}, error) {
   log := bus.log
 
   amq, err := bus.getAmqp(eventType)
