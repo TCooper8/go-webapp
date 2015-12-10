@@ -1,43 +1,57 @@
 package commons
 
 import (
+  "code.google.com/p/go-uuid/uuid"
   "github.com/tcooper8/webApp/logging"
   "github.com/streadway/amqp"
 )
 
-type EventMapping struct {
+type AmqpEventMapping struct {
   endPoint    string
   eventType   string
   exchange    string
   reqQueue    string
   respListenQueue string
+  privateQueue    string
 }
 
-type change struct {
-  msg     interface{}
-  sender  chan<- error
-}
-
-type amqpConn struct {
-  conn  *amqp.Connection
-  ch    *amqp.Channel
+type connInfo struct {
+  conn    *amqp.Connection
+  ch      *amqp.Channel
+  mapping *AmqpEventMapping
 }
 
 type AmqpPool struct {
   log           *logging.Log
-  eventMap      map[string] *EventMapping
   privateQueues map[string] string
-  connMap       map[string] *amqpConn
+  connMap       map[string] *connInfo
   cancelToken   chan bool
   taskMap       map[string] chan interface{}
   changes       chan interface{}
 }
 
+type setMapping struct {
+  mapping *AmqpEventMapping
+}
+
+type getConnMsg struct {
+  eventType string
+}
+
+type getConnRes struct {
+  conn  *connInfo
+  ok    bool
+}
+
+type change struct {
+  msg   interface{}
+  reply chan<- interface{}
+}
+
 func NewAmqpPool(name string) (*AmqpPool, error) {
   log := logging.New(name + ":Amqp", logging.INFO)
-  eventMap := make(map[string] *EventMapping)
   privateQueues := make(map[string] string)
-  connMap := make(map[string] *amqpConn)
+  connMap := make(map[string] *connInfo)
 
   cancelToken := make(chan bool)
   taskMap := make(map[string] chan interface{})
@@ -45,7 +59,6 @@ func NewAmqpPool(name string) (*AmqpPool, error) {
 
   pool := AmqpPool{
     log,
-    eventMap,
     privateQueues,
     connMap,
     cancelToken,
@@ -53,7 +66,23 @@ func NewAmqpPool(name string) (*AmqpPool, error) {
     changes,
   }
 
+  pool.loadDefaultMappings()
+
   do pool.handleChanges()
+
+  return &pool, nil
+}
+
+func (pool *AmqpPool) loadDefaultMappings() {
+  pool.setMapping(
+    AmqpEventMapping{
+      endPoint: "amqp://localhost:5672/",
+      eventType: "auth.register",
+      exchange: "auth",
+      reqQueue: "auth.register",
+      privateQueue: uuid.New(),
+    }
+  )
 }
 
 func (pool *AmqpPool) handleChanges() {
@@ -66,35 +95,177 @@ func (pool *AmqpPool) handleChanges() {
 
   for c = range changes {
     msg = c.msg
-    sender = c.sender
 
     switch msg := msg.(type) {
     default:
       log.Warn("Received unexpected change: %T as %s", msg, msg)
 
-    case *EventMapping:
+    case *AmqpEventMapping:
       // Update to the event mapping.
-      sender <- pool.updateMapping(msg)
+      pool.setMapping(msg)
+
+    case getMappingMsg:
+      c.reply <- pool.getMapping(msg.eventType)
+  }
+}
+
+func (pool *AmqpPool) RespondOn(eventType string, handler chan<- interface{}) error {
+  var err error = nil
+  log := pool.log
+
+  connInfo, ok := pool.GetConnInfo(eventType)
+  if !ok {
+    return errors.New(fmt.Sprintf(
+      "Event type %s is unmapped",
+      eventType,
+    ))
+  }
+
+  channel := connPair.channel
+
+  err = channel.ExchangeDeclare(
+}
+
+func (pool *AmqpPool) getConn(eventType string) (*connInfo, bool) {
+  return pool.connMap[eventType]
+}
+
+func (pool *AmqpPool) GetMapping(eventType string) (*AmqpEventMapping, bool) {
+  reply := make(chan interface{}, 1)
+  pool.changes <- change{
+    msg: getConnMsg{
+      eventType,
+    }
+  }
+
+  _res := <-reply
+  close(reply)
+
+  res := _res.(getConnRes)
+  return res.conn.mapping, res.ok
+}
+
+func (pool *AmqpPool) setMapping(mapping *AmqpEventMapping) error {
+  // First, creating the connections, etc...
+
+  eventType := mapping.eventType
+  endPoint := mapping.endPoint
+
+  conn, err := amqp.Dial(endPoint)
+  if err != nil {
+    return err
+  }
+
+  channel, err := conn.Channel()
+  if err != nil {
+    return err
+  }
+
+  amq := amqpConn{
+    conn,
+    channel,
+    mapping,
+  }
+
+  // Update the maps.
+  pool.connMap[eventType] = amq
+
+  return nil
+}
+
+func (pool *AmqpPool) SetMapping(mapping *AmqpEventMapping) {
+  pool.changes <- change{
+    msg: setMapping{
+      mapping,
     }
   }
 }
 
-func ListenOn(eventType string, handler chan<- interface{}) error {
 
-}
 
-func (pool *AmqpPool) updateMapping(mapping *EventMapping) error {
 
-}
 
-func (pool *AmqpPool) UpdateMapping(mapping *EventMapping) error {
-  sender := make(chan error, 1)
-  pool.changes <- change{
-    mapping,
-    sender,
-  }
 
-  err := <-sender
-  close(sender)
-  return err
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
